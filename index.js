@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { MongoClient } from "mongodb";
 import dotenv from "dotenv";
+import Joi from "joi";
 import dayjs from "dayjs";
 
 dotenv.config();
@@ -44,7 +45,6 @@ app.post("/participants", async (req, res) => {
 
     res.sendStatus(201);
   } catch (error) {
-    // console.log(error);
     return res.sendStatus(422);
   }
 });
@@ -54,9 +54,44 @@ app.get("/participants", async (req, res) => {
     const users = await db.collection("users").find().toArray();
     return res.send(users);
   } catch (error) {
-    // console.log(error);
     res.sendStatus(500);
   }
 });
 
-app.listen(5000, () => console.log("Magic happens on port 5000"));
+app.post("/messages", async (req, res) => {
+  const { to: recipient } = req.body;
+  const { user: sender } = req.headers;
+
+  try {
+    const checkUser = await db.collection("users").findOne({ name: sender });
+
+    if (!checkUser) {
+      return res.sendStatus(422);
+    }
+  } catch (error) {
+    return res.sendStatus(422);
+  }
+
+  const userSchema = Joi.object({
+    from: Joi.string().alphanum().min(1).required(),
+  });
+
+  const messageSchema = Joi.object({
+    to: Joi.string().alphanum().min(1).required(),
+    text: Joi.string().min(1).required(),
+    type: Joi.string().valid("message", "private_message").required(),
+  });
+
+  try {
+    await userSchema.validateAsync({ from: recipient });
+    await messageSchema.validateAsync(req.body);
+    await db
+      .collection("messages")
+      .insertOne({ ...req.body, time: dayjs().format("HH:mm:ss") });
+    res.sendStatus(201);
+  } catch (error) {
+    return res.sendStatus(422);
+  }
+});
+
+app.listen(5000, () => console.log("Server running on port 5000"));
