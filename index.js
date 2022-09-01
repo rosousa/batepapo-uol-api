@@ -28,9 +28,11 @@ app.post("/participants", async (req, res) => {
 
   try {
     const checkUser = await db.collection("users").find({ name }).toArray();
+
     if (checkUser.length > 0) {
       return res.sendStatus(409);
     }
+
     await db.collection("users").insertOne({ name, lastStatus: Date.now() });
     await db.collection("messages").insertOne({
       from: name,
@@ -39,9 +41,21 @@ app.post("/participants", async (req, res) => {
       type: "status",
       time: dayjs().format("HH:mm:ss"),
     });
+
     res.sendStatus(201);
   } catch (error) {
+    // console.log(error);
     return res.sendStatus(422);
+  }
+});
+
+app.get("/participants", async (req, res) => {
+  try {
+    const users = await db.collection("users").find().toArray();
+    return res.send(users);
+  } catch (error) {
+    // console.log(error);
+    res.sendStatus(500);
   }
 });
 
