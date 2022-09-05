@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import dotenv from "dotenv";
 import Joi from "joi";
 import dayjs from "dayjs";
@@ -13,7 +13,6 @@ app.use(cors());
 app.use(express.json());
 
 const mongoClient = new MongoClient(process.env.MONGO_URI);
-
 let db;
 
 mongoClient.connect().then(() => {
@@ -21,14 +20,15 @@ mongoClient.connect().then(() => {
 });
 
 app.post("/participants", async (req, res) => {
-  const { name } = req.body;
+  let { name } = req.body;
 
   const nameSchema = Joi.object({
-    name: Joi.string().alphanum().empty().required(),
+    name: Joi.string().empty().required(),
   });
 
   try {
     await nameSchema.validateAsync({ name });
+
     const userExist = await db.collection("users").findOne({ name });
     if (userExist) {
       return res.sendStatus(409);
@@ -45,6 +45,7 @@ app.post("/participants", async (req, res) => {
 
     res.sendStatus(201);
   } catch (error) {
+    console.log(error);
     return res.sendStatus(422);
   }
 });
@@ -54,12 +55,13 @@ app.get("/participants", async (req, res) => {
     let users = await db.collection("users").find().toArray();
     return res.send(users);
   } catch (error) {
-    res.sendStatus(500);
+    return res.sendStatus(500);
   }
 });
 
 app.post("/messages", async (req, res) => {
   const { user: sender } = req.headers;
+  let message = req.body;
 
   try {
     const checkUser = await db.collection("users").findOne({ name: sender });
@@ -83,9 +85,9 @@ app.post("/messages", async (req, res) => {
 
   try {
     await userSchema.validateAsync({ from: sender });
-    await messageSchema.validateAsync(req.body);
+    await messageSchema.validateAsync(message);
     await db.collection("messages").insertOne({
-      ...req.body,
+      ...message,
       from: sender,
       time: dayjs().format("HH:mm:ss"),
     });
@@ -171,6 +173,59 @@ async function checkActiveUsers() {
   }
 }
 
-setInterval(checkActiveUsers, 1000);
+app.delete("/messages/:id", async (req, res) => {
+  const { user } = req.headers;
+  const { id } = req.params;
+
+  try {
+    const message = await db
+      .collection("messages")
+      .findOne({ _id: ObjectId(id) });
+    if (!message) {
+      return res.sendStatus(404);
+    }
+    if (message.from !== user) {
+      return res.sendStatus(401);
+    }
+    await db.collection("messages").deleteOne({ _id: ObjectId(id) });
+    res.send();
+  } catch (error) {
+    console.log(error);
+  }
+});
+
+app.put("/messages/:id", async (req, res) => {
+  const { user } = req.headers;
+  const { id } = req.params;
+  const newMessage = req.body;
+
+  const userSchema = Joi.object({
+    to: Joi.string().empty().required(),
+    text: Joi.string().empty().required(),
+    type: Joi.string().valid("message", "private_message").required(),
+  });
+
+  try {
+    await userSchema.validateAsync(newMessage, { abortEarly: false });
+    const oldMessage = await db
+      .collection("messages")
+      .findOne({ _id: ObjectId(id) });
+    if (!oldMessage) {
+      return res.sendStatus(404);
+    }
+    if (oldMessage.from !== user) {
+      return res.sendStatus(401);
+    }
+    await db
+      .collection("messages")
+      .updateOne({ _id: ObjectId(id) }, { $set: newMessage });
+    res.send();
+  } catch (error) {
+    console.log(error);
+    return res.sendStatus(422);
+  }
+});
+
+setInterval(checkActiveUsers, 15000);
 
 app.listen(5000, () => console.log("Server running on port 5000"));
